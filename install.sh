@@ -38,7 +38,7 @@ sudo cp target/release/cyan-skillfish-governor-smu /usr/local/bin/ || {
   exit 1
 }
 
-echo "Configurando o arquivo de configuração e serviço systemd..."
+echo "Configurando o arquivo de configuração, logs e serviço systemd..."
 sudo mkdir -p /etc/cyan-skillfish-governor/ || {
   echo "Erro: Falha ao criar o diretório /etc/cyan-skillfish-governor."
   exit 1
@@ -47,6 +47,11 @@ sudo cp custom-config.toml /etc/cyan-skillfish-governor/custom-config.toml || {
   echo "Erro: Falha ao copiar custom-config.toml."
   exit 1
 }
+
+# Configurar arquivo de log com permissões corretas
+sudo touch /var/log/cyan-skillfish-governor.log
+sudo chmod 666 /var/log/cyan-skillfish-governor.log
+
 sudo cp cyan-skillfish-governor.service /etc/systemd/system/ || {
   echo "Erro: Falha ao copiar o arquivo de serviço systemd."
   exit 1
@@ -60,11 +65,12 @@ sudo systemctl enable cyan-skillfish-governor.service || {
   echo "Erro: Falha ao habilitar o serviço systemd."
   exit 1
 }
-sudo systemctl start cyan-skillfish-governor.service || {
+sudo systemctl restart cyan-skillfish-governor.service || {
   echo "Erro: Falha ao iniciar o serviço systemd."
   exit 1
 }
 
 echo "Instalação concluída com sucesso!"
 echo "Para verificar o status do serviço, use: sudo systemctl status cyan-skillfish-governor.service"
-echo "Para ver os logs em tempo real, use: journalctl -u cyan-skillfish-governor.service -f"
+echo "Para ver os logs em tempo real, use: tail -f /var/log/cyan-skillfish-governor.log"
+echo "Ou use o journalctl: journalctl -u cyan-skillfish-governor.service -f"

@@ -81,7 +81,7 @@ impl GPU {
         Ok((temp / 1000) as u32)
     }
 
-    pub fn change_freq(&mut self, freq: u32) -> Result<(), IoError> {
+    pub fn change_freq(&mut self, freq: u32) -> Result<u32, IoError> {
         let current_freq = self.get_freq().unwrap_or(0);
         
         let vol = *self
@@ -103,7 +103,7 @@ impl GPU {
             self.smu.force_gfx_vid(vol)?;
         }
 
-        Ok(())
+        Ok(vol)
     }
     pub fn get_freq(& self) -> Result<u32,IoError>{
         Ok(self.smu.get_gfx_frequency()?)
