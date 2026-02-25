@@ -1,0 +1,12 @@
+[Unit]
+Description=Cyan Skillfish GPU Governor
+After=network.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+ExecStart=/usr/local/bin/cyan-skillfish-governor-smu /etc/cyan-skillfish-governor/custom-config.toml
+
+[Install]
+WantedBy=multi-user.target
