@@ -23,58 +23,58 @@ lower = 0.40 # Reduzido para permitir cair para 1000MHz em idle/baixa carga
 throttling = 70
 throttling_recovery = 70
 
-# Safe points cobrindo as frequências de interesse (1000 até 2000)
+# Safe points cobrindo as frequências de interesse (1000 até 2000) com voltagens otimizadas
 [[safe-points]]
 frequency = 1000
-voltage = 800
+voltage = 700
 
 [[safe-points]]
 frequency = 1100
-voltage = 820
+voltage = 720
 
 [[safe-points]]
 frequency = 1200
-voltage = 840
+voltage = 740
 
 [[safe-points]]
 frequency = 1300
-voltage = 860
+voltage = 760
 
 [[safe-points]]
 frequency = 1400
-voltage = 880
+voltage = 780
 
 [[safe-points]]
 frequency = 1500
-voltage = 900
+voltage = 800
 
 [[safe-points]]
 frequency = 1600
-voltage = 910
+voltage = 832
 
 [[safe-points]]
 frequency = 1700
-voltage = 920
+voltage = 864
 
 [[safe-points]]
 frequency = 1750
-voltage = 925
+voltage = 880
 
 [[safe-points]]
 frequency = 1800
-voltage = 930
+voltage = 896
 
 [[safe-points]]
 frequency = 1850
-voltage = 935
+voltage = 912
 
 [[safe-points]]
 frequency = 1900
-voltage = 940
+voltage = 928
 
 [[safe-points]]
 frequency = 1950
-voltage = 950
+voltage = 944
 
 [[safe-points]]
 frequency = 2000
