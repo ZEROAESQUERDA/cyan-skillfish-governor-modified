@@ -82,6 +82,8 @@ impl GPU {
     }
 
     pub fn change_freq(&mut self, freq: u32) -> Result<(), IoError> {
+        let current_freq = self.get_freq().unwrap_or(0);
+        
         let vol = *self
             .safe_points
             .range(freq..)
@@ -91,8 +93,15 @@ impl GPU {
             ))?
             .1;
 
-        self.smu.force_gfx_vid(vol)?;
-        self.smu.force_gfx_freq(freq)?;
+        if freq > current_freq {
+            // Se subir a frequência, subir a voltagem PRIMEIRO
+            self.smu.force_gfx_vid(vol)?;
+            self.smu.force_gfx_freq(freq)?;
+        } else {
+            // Se baixar a frequência, baixar a frequência PRIMEIRO
+            self.smu.force_gfx_freq(freq)?;
+            self.smu.force_gfx_vid(vol)?;
+        }
 
         Ok(())
     }

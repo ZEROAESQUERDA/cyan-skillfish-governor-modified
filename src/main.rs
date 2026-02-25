@@ -33,14 +33,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target_temp: u32 = 70;
     let recovery_delay = Duration::from_secs(10);
 
-    println!("Governor iniciado.");
+    println!("Governor iniciado com foco em estabilidade.");
     println!("Frequências: Mín: {}MHz, Base: {}MHz, Mid: {}MHz, Max: {}MHz", min_freq, base_freq, mid_boost_freq, max_boost_freq);
 
     loop {
         let mut average_load: f32 = 0.0;
         let mut burst_length: u32 = 0;
 
-        // Preencher o buffer de amostras (aprox. 130ms com sample de 2ms)
+        // Amostragem
         for _ in 0..65 {
             (average_load, burst_length) = gpu.poll_and_get_load()?;
             std::thread::sleep(config.sampling_interval);
@@ -54,23 +54,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let temp = gpu.read_temperature()?;
         
         if temp > target_temp {
-            // Se temperatura > 70, aumenta o throttle (reduz clock) de 50 em 50
             thermal_throttle_offset += 50;
             last_over_temp_time = Some(Instant::now());
-            println!("Temperatura alta: {}°C. Aplicando throttle: -{}MHz", temp, thermal_throttle_offset);
+            println!("ALERTA TÉRMICO: {}°C. Throttle: -{}MHz", temp, thermal_throttle_offset);
         } else if thermal_throttle_offset > 0 {
-            // Se temperatura <= 70 e há throttle aplicado, verifica se passaram 10 segundos
             if let Some(last_time) = last_over_temp_time {
                 if Instant::now().duration_since(last_time) >= recovery_delay {
-                    // Reduz o throttle (aumenta clock) gradualmente
                     if thermal_throttle_offset >= 50 {
                         thermal_throttle_offset -= 50;
                     } else {
                         thermal_throttle_offset = 0;
                     }
-                    // Resetamos o timer para a próxima subida de 50MHz (para ser gradual na subida também)
                     last_over_temp_time = Some(Instant::now());
-                    println!("Recuperação térmica: {}°C. Throttle reduzido para: -{}MHz", temp, thermal_throttle_offset);
+                    println!("RECUPERAÇÃO TÉRMICA: {}°C. Throttle: -{}MHz", temp, thermal_throttle_offset);
                 }
             }
         }
@@ -79,43 +75,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut load_target_freq;
         
         if burst || average_load > config.up_thresh {
-            // Uso máximo ou burst -> Tenta 2000MHz
             load_target_freq = max_boost_freq;
         } else if average_load > (config.up_thresh + config.down_thresh) / 2.0 {
-            // Uso médio -> 1750MHz
             load_target_freq = mid_boost_freq;
         } else if average_load > config.down_thresh {
-            // Uso normal/base -> 1500MHz
             load_target_freq = base_freq;
         } else {
-            // Uso muito baixo -> 1000MHz
             load_target_freq = min_freq;
         }
 
         // Aplicar o throttle térmico
-        // O throttle reduz a partir da frequência que a carga "gostaria" de ter
         if load_target_freq > thermal_throttle_offset {
             target_freq = load_target_freq - thermal_throttle_offset;
         } else {
-            target_freq = min_freq; // Nunca baixa da mínima absoluta por throttle
+            target_freq = min_freq;
         }
 
-        // Garantir que a frequência está nos limites solicitados
         target_freq = target_freq.clamp(min_freq, max_boost_freq);
         
-        // Verifica se a mudança é significativa o suficiente para aplicar
+        // Histerese: Apenas mudar se a diferença for significativa
         let big_change = curr_freq.abs_diff(target_freq) >= 25; 
 
         if curr_freq != target_freq && big_change {
             println!(
-                "Ajuste: {}MHz -> {}MHz | Temp: {}°C | Load: {:.2} | Offset: -{}MHz",
+                "Mudança: {}MHz -> {}MHz | Temp: {}°C | Carga: {:.2} | Offset Térmico: -{}MHz",
                 curr_freq, target_freq, temp, average_load, thermal_throttle_offset
             );
-            gpu.change_freq(target_freq)?;
-            curr_freq = target_freq;
+            
+            // Tenta aplicar a mudança. Se falhar, registra mas continua.
+            if let Err(e) = gpu.change_freq(target_freq) {
+                eprintln!("ERRO ao mudar frequência: {}", e);
+            } else {
+                curr_freq = target_freq;
+            }
         }
 
-        // Intervalo de ajuste
         std::thread::sleep(config.adjustment_interval.saturating_sub(64 * config.sampling_interval));
     }
 }
