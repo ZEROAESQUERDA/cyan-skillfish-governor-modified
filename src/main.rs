@@ -2,6 +2,7 @@ mod config;
 mod gpu;
 use config::Config;
 use gpu::GPU;
+use std::time::{Instant, Duration};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::new(
@@ -14,21 +15,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut gpu = GPU::new(config.safe_points)?;
 
     let mut curr_freq: u32 = gpu.get_freq()?;
-    let mut target_freq = gpu.min_freq;
-    let mut status: i16 = 0;
-    const UP_EVENTS: i16 = 2;
-    gpu.change_freq(target_freq)?;
-    let mut max_freq = gpu.max_freq;
+    
+    // Definições de frequências solicitadas
+    let min_freq: u32 = 1000;
+    let base_freq: u32 = 1500;
+    let mid_boost_freq: u32 = 1750;
+    let max_boost_freq: u32 = 2000;
+    
+    let mut target_freq = base_freq;
+    
+    // Inicializa na frequência base
+    gpu.change_freq(base_freq)?;
+    
+    // Variáveis para controle térmico
+    let mut thermal_throttle_offset: u32 = 0;
+    let mut last_over_temp_time: Option<Instant> = None;
+    let target_temp: u32 = 70;
+    let recovery_delay = Duration::from_secs(10);
 
-    let burst_freq_step =
-        (config.ramp_rate_burst * config.adjustment_interval.as_millis() as f32) as u32;
-    let freq_step = (config.ramp_rate * config.adjustment_interval.as_millis() as f32) as u32;
-    println!("freq min {} max {} ", gpu.min_freq, max_freq);
+    println!("Governor iniciado.");
+    println!("Frequências: Mín: {}MHz, Base: {}MHz, Mid: {}MHz, Max: {}MHz", min_freq, base_freq, mid_boost_freq, max_boost_freq);
+
     loop {
         let mut average_load: f32 = 0.0;
         let mut burst_length: u32 = 0;
 
-        //fill the sample buffer
+        // Preencher o buffer de amostras (aprox. 130ms com sample de 2ms)
         for _ in 0..65 {
             (average_load, burst_length) = gpu.poll_and_get_load()?;
             std::thread::sleep(config.sampling_interval);
@@ -38,55 +50,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .burst_samples
             .map_or(false, |burst_samples| burst_length >= burst_samples);
 
-        //Temperature Management
+        // --- Lógica de Controle Térmico ---
         let temp = gpu.read_temperature()?;
-        if let Some(max_temp) = config.throttling_temp {
-            if (temp > max_temp) && (max_freq >= gpu.min_freq + freq_step) {
-                max_freq -= config.significant_change;
-                println!("throttling temp {temp} freq {max_freq}");
-            } else if let Some(recovery_temp) = config.throttling_recovery_temp
-                && temp < recovery_temp
-                && max_freq != gpu.max_freq
-            {
-                max_freq = gpu.max_freq;
-                println!("recover throttling temp {temp} freq {max_freq}");
+        
+        if temp > target_temp {
+            // Se temperatura > 70, aumenta o throttle (reduz clock) de 50 em 50
+            thermal_throttle_offset += 50;
+            last_over_temp_time = Some(Instant::now());
+            println!("Temperatura alta: {}°C. Aplicando throttle: -{}MHz", temp, thermal_throttle_offset);
+        } else if thermal_throttle_offset > 0 {
+            // Se temperatura <= 70 e há throttle aplicado, verifica se passaram 10 segundos
+            if let Some(last_time) = last_over_temp_time {
+                if Instant::now().duration_since(last_time) >= recovery_delay {
+                    // Reduz o throttle (aumenta clock) gradualmente
+                    if thermal_throttle_offset >= 50 {
+                        thermal_throttle_offset -= 50;
+                    } else {
+                        thermal_throttle_offset = 0;
+                    }
+                    // Resetamos o timer para a próxima subida de 50MHz (para ser gradual na subida também)
+                    last_over_temp_time = Some(Instant::now());
+                    println!("Recuperação térmica: {}°C. Throttle reduzido para: -{}MHz", temp, thermal_throttle_offset);
+                }
             }
         }
 
-        if burst {
-            target_freq += burst_freq_step;
+        // --- Lógica de Decisão de Frequência baseada em Carga ---
+        let mut load_target_freq;
+        
+        if burst || average_load > config.up_thresh {
+            // Uso máximo ou burst -> Tenta 2000MHz
+            load_target_freq = max_boost_freq;
+        } else if average_load > (config.up_thresh + config.down_thresh) / 2.0 {
+            // Uso médio -> 1750MHz
+            load_target_freq = mid_boost_freq;
+        } else if average_load > config.down_thresh {
+            // Uso normal/base -> 1500MHz
+            load_target_freq = base_freq;
         } else {
-            if average_load > config.up_thresh && status <= UP_EVENTS {
-                status += UP_EVENTS;
-            } else if average_load < config.down_thresh && curr_freq > gpu.min_freq {
-                status -= 1;
-            } else if status < 0 {
-                status += 1;
-            } else if status > 0 {
-                status -= 1;
-            }
-
-            if status <= -config.down_events {
-                target_freq -= freq_step;
-            } else if status >= UP_EVENTS {
-                target_freq += freq_step;
-            }
+            // Uso muito baixo -> 1000MHz
+            load_target_freq = min_freq;
         }
 
-        target_freq = target_freq.clamp(gpu.min_freq, max_freq);
-        let hit_bounds = target_freq == gpu.min_freq || target_freq == max_freq;
-        let big_change = curr_freq.abs_diff(target_freq) >= config.significant_change;
+        // Aplicar o throttle térmico
+        // O throttle reduz a partir da frequência que a carga "gostaria" de ter
+        if load_target_freq > thermal_throttle_offset {
+            target_freq = load_target_freq - thermal_throttle_offset;
+        } else {
+            target_freq = min_freq; // Nunca baixa da mínima absoluta por throttle
+        }
 
-        if curr_freq != target_freq && (burst || hit_bounds || big_change) {
-            let de = config.down_events;
+        // Garantir que a frequência está nos limites solicitados
+        target_freq = target_freq.clamp(min_freq, max_boost_freq);
+        
+        // Verifica se a mudança é significativa o suficiente para aplicar
+        let big_change = curr_freq.abs_diff(target_freq) >= 25; 
+
+        if curr_freq != target_freq && big_change {
             println!(
-                "freq curr {curr_freq} target {target_freq} temp {temp} status {status} de {de} load {average_load} bl {burst_length}"
+                "Ajuste: {}MHz -> {}MHz | Temp: {}°C | Load: {:.2} | Offset: -{}MHz",
+                curr_freq, target_freq, temp, average_load, thermal_throttle_offset
             );
             gpu.change_freq(target_freq)?;
-            status = 0;
             curr_freq = target_freq;
         }
 
-        std::thread::sleep(config.adjustment_interval - 64 * config.sampling_interval);
+        // Intervalo de ajuste
+        std::thread::sleep(config.adjustment_interval.saturating_sub(64 * config.sampling_interval));
     }
 }

@@ -1,0 +1,81 @@
+# Configuração otimizada para Boost Escalonável e Controle Térmico
+
+[timing.intervals]
+sample = 2000    # 2ms por amostra
+adjust = 200000  # 200ms por ciclo de ajuste
+
+[timing.ramp-rates]
+normal = 1.0
+burst = 50.0
+
+[timing]
+burst-samples = 48
+down-events = 5
+
+[frequency-thresholds]
+adjust = 25
+
+[load-target]
+upper = 0.85
+lower = 0.40 # Reduzido para permitir cair para 1000MHz em idle/baixa carga
+
+[temperature]
+throttling = 70
+throttling_recovery = 70
+
+# Safe points cobrindo as frequências de interesse (1000 até 2000)
+[[safe-points]]
+frequency = 1000
+voltage = 800
+
+[[safe-points]]
+frequency = 1100
+voltage = 820
+
+[[safe-points]]
+frequency = 1200
+voltage = 840
+
+[[safe-points]]
+frequency = 1300
+voltage = 860
+
+[[safe-points]]
+frequency = 1400
+voltage = 880
+
+[[safe-points]]
+frequency = 1500
+voltage = 900
+
+[[safe-points]]
+frequency = 1600
+voltage = 910
+
+[[safe-points]]
+frequency = 1700
+voltage = 920
+
+[[safe-points]]
+frequency = 1750
+voltage = 925
+
+[[safe-points]]
+frequency = 1800
+voltage = 930
+
+[[safe-points]]
+frequency = 1850
+voltage = 935
+
+[[safe-points]]
+frequency = 1900
+voltage = 940
+
+[[safe-points]]
+frequency = 1950
+voltage = 950
+
+[[safe-points]]
+frequency = 2000
+voltage = 960
